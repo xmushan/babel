@@ -10,6 +10,7 @@ const traverse = require('@babel/traverse').default;
 const generate = require('@babel/generator').default;
 // babel/types对AST 的判断、创建、修改
 const types = require('@babel/types');
+const template = require('@babel/template')
 
 
 
@@ -41,19 +42,39 @@ const ast = parser.parse(sourceCode, {
     // 上面的代码中用到了js，所以需要开启一下jsx的plugin
     plugins: ['jsx']
 })
-
+const targetCalleeName = ['log', 'info', 'error', 'debug'].map(item => `console.${item}`);
+// 在console中增加代码所在位置
+// traverse(ast, {
+//     // 针对特定节点进行操作
+//     CallExpression (path, state) {
+//         const calleeName = generate(path.node.callee).code;
+//         if ( targetCalleeName.includes(calleeName)
+//             && path.node.callee.object.name === 'console' 
+//             && ['log', 'info', 'error', 'debug'].includes(path.node.callee.property.name) 
+//            ) {
+//             const { line, column } = path.node.loc.start;
+//             path.node.arguments.unshift(types.stringLiteral(`line:(${line}, column:${column})`))
+//         }
+//     }
+// });
+// 在console之前插入一个console
 traverse(ast, {
-    // 针对特定节点进行操作
-    CallExpression (path, state) {
-        if ( types.isMemberExpression(path.node.callee) 
-            && path.node.callee.object.name === 'console' 
-            && ['log', 'info', 'error', 'debug'].includes(path.node.callee.property.name) 
-           ) {
-            const { line, column } = path.node.loc.start;
-            path.node.arguments.unshift(types.stringLiteral(`行：(${line}, 列：${column})`))
+    CallExpression(path, state){
+        if (path.node.isNew) return
+        const calleeName = generate(path.node.callee).code
+        if (targetCalleeName.includes(calleeName)) {
+            const { line,column } = path.node.loc.start
+            const newNode = template.expression(`console.log("filename: (${line}, ${column})")`)();
+            newNode.isNew = true
+            if (path.findParent(path => path.isJSXElement())) {
+                path.replaceWith(types.arrayExpression([newNode,path.node]))
+                path.skip()
+            } else {
+                path.insertBefore(newNode)
+            }
         }
     }
-});
+})
 
 
 const { code,map } = generate(ast)
